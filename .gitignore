@@ -1,0 +1,53 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python bytecode & caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+*.so
+*.whl
+
+# Generated ML artifacts
+**/models/
+**/report/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# SvelteKit build outputs
+.svelte-kit/
+.vite/
+
+# Build outputs
+dist/
+build/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# IDE & editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log

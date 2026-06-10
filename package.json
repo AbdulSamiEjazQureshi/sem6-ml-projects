@@ -1,0 +1,17 @@
+{
+  "name": "offline-ml-semester-projects",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One-command launcher for CrisisLens and LeafGuard offline ML semester projects.",
+  "scripts": {
+    "start": ".venv/bin/python scripts/run_projects.py",
+    "run": ".venv/bin/python scripts/run_projects.py",
+    "train": ".venv/bin/python -m crisislens.ml.train && .venv/bin/python -m leafguard.ml.train",
+    "test": ".venv/bin/python -m unittest crisislens.tests.test_ml_core crisislens.tests.test_api_explain leafguard.tests.test_ml_core leafguard.tests.test_api_upload",
+    "build:ui": "npm --prefix crisislens/ui run build && npm --prefix leafguard/ui run build",
+    "report:leafguard": ".venv/bin/python scripts/build_leafguard_report.py",
+    "verify": "npm run train && npm run test && npm run build:ui && .venv/bin/python -m compileall -q crisislens leafguard scripts",
+    "crisislens": ".venv/bin/python -m crisislens.api.server",
+    "leafguard": ".venv/bin/python -m leafguard.api.server"
+  }
+}
