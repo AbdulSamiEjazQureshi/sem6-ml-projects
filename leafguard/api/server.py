@@ -30,6 +30,13 @@ def regenerate_assets():
     return load_payload()
 
 
+def save_payload(payload):
+    """Write the current payload to model.json."""
+    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(MODEL_PATH, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+
 def summarize_features(features, label):
     if label == "healthy":
         return "No disease predicted: the leaf is mostly green with low lesion signals."
@@ -163,6 +170,32 @@ class LeafGuardHandler(BaseHTTPRequestHandler):
             data_url = body.get("image", "")
             encoded = data_url.split(",", 1)[-1]
             self._send(200, prediction_from_image_bytes(self.model, base64.b64decode(encoded), challenger=self.challenger, species_model=self.species_model))
+        elif self.path == "/feedback":
+            features = body.get("features")
+            corrected_label = body.get("corrected_label")
+            if not features or not corrected_label:
+                self._send(400, {"error": "features and corrected_label are required"})
+                return
+            # Add the user-corrected sample to the KNN model
+            self.challenger.add_training_sample(features, corrected_label)
+            # Rebuild NearestCentroid from all training data
+            all_samples, all_labels = self.challenger.get_all_training_data()
+            self.model = NearestCentroid().fit(all_samples, all_labels)
+            # Update model entries in payload
+            type(self).payload["primary"] = self.model.to_dict()
+            type(self).payload["challenger"] = self.challenger.to_dict()
+            # Persist to disk
+            save_payload(self.payload)
+            # Return updated prediction
+            result = prediction_from_features(
+                self.model, features,
+                challenger=self.challenger,
+                species_model=self.species_model,
+            )
+            result["feedback_applied"] = True
+            result["corrected_label"] = corrected_label
+            result["total_training_samples"] = len(self.challenger.samples)
+            self._send(200, result)
         elif self.path == "/regenerate":
             payload = regenerate_assets()
             type(self).payload = payload

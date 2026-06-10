@@ -60,11 +60,17 @@
   let status = 'Pick a sample leaf or upload a photo to begin.';
   let toast = '';
   let selectedClass = 'all';
+  let feedbackMode = null; // null | 'correct' | 'wrong' | 'submitted'
+  let feedbackLabel = '';
+  let feedbackResult = null;
+  let feedbackSubmitted = false;
+  let feedbackError = '';
 
   $: visibleSamples =
     selectedClass === 'all' ? samples : samples.filter((sample) => sample.label === selectedClass);
   $: sampleClasses = ['all', ...Array.from(new Set(samples.map((sample) => sample.label)))];
   $: diagnosis = result ? diseaseNotes[result.label] || { title: result.label, copy: result.human_summary, tone: 'watch' } : null;
+  $: allClasses = Object.keys(diseaseNotes);
 
   async function loadLists() {
     try {
@@ -77,6 +83,7 @@
 
   async function diagnoseSample(samplePath = path) {
     error = '';
+    resetFeedback();
     try {
       const response = await fetch(`${api}/predict-image`, {
         method: 'POST',
@@ -121,6 +128,7 @@
       return;
     }
     error = '';
+    resetFeedback();
     status = 'Running diagnosis...';
     if (!pendingFeatures && pendingImageSrc) {
       pendingFeatures = await extractFeaturesFromSource(pendingImageSrc);
@@ -219,6 +227,54 @@
     window.setTimeout(() => {
       toast = '';
     }, 2600);
+  }
+
+  function resetFeedback() {
+    feedbackMode = null;
+    feedbackLabel = '';
+    feedbackResult = null;
+    feedbackSubmitted = false;
+    feedbackError = '';
+  }
+
+  async function submitFeedback(correct) {
+    if (correct) {
+      feedbackMode = 'correct';
+      feedbackSubmitted = true;
+      // User confirmed correct — send feedback to strengthen the model
+      await sendFeedbackToApi(result.features, result.label);
+      return;
+    }
+    feedbackMode = 'wrong';
+    feedbackLabel = result.label;
+  }
+
+  async function sendFeedbackToApi(features, correctedLabel) {
+    feedbackError = '';
+    try {
+      const response = await fetch(`${api}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          features,
+          corrected_label: correctedLabel
+        })
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const data = await response.json();
+      feedbackResult = data;
+      result = data; // Refresh the full diagnosis with retrained model
+      feedbackSubmitted = true;
+      status = `Model updated with your feedback (${data.total_training_samples} total training samples).`;
+    } catch (err) {
+      feedbackError = 'Could not submit feedback. Make sure the API is running.';
+      feedbackMode = null;
+    }
+  }
+
+  async function confirmCorrection() {
+    if (!feedbackLabel) return;
+    await sendFeedbackToApi(result.features, feedbackLabel);
   }
 
   async function regenerateSamples() {
@@ -342,6 +398,54 @@
         </div>
 
         <p class="plain">{result.human_summary}</p>
+
+        <!-- Feedback: online learning -->
+        {#if !feedbackSubmitted}
+          <div class="feedback-card">
+            <b>Was this diagnosis correct?</b>
+            <div class="feedback-actions">
+              <button class="feedback-btn correct" on:click={() => submitFeedback(true)}>
+                ✓ Yes, correct
+              </button>
+              <button class="feedback-btn wrong" on:click={() => submitFeedback(false)}>
+                ✗ No, wrong
+              </button>
+            </div>
+            {#if feedbackMode === 'wrong'}
+              <div class="correction-panel">
+                <label for="feedback-class">Select the correct class:</label>
+                <select id="feedback-class" bind:value={feedbackLabel}>
+                  {#each allClasses as cls}
+                    <option value={cls}>{formatLabel(cls)}</option>
+                  {/each}
+                </select>
+                <button class="primary confirm-btn" on:click={confirmCorrection}>
+                  Submit correction &amp; retrain model
+                </button>
+                {#if feedbackError}
+                  <p class="feedback-error">{feedbackError}</p>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {:else if feedbackResult}
+          <div class="feedback-updated">
+            <p class="feedback-badge">✓ Model updated with your feedback</p>
+            <p class="feedback-summary">
+              Retrained on <strong>{feedbackResult.total_training_samples}</strong> samples.
+              {feedbackResult.feedback_applied
+                ? 'The model has incorporated your correction.'
+                : ''}
+            </p>
+            {#if feedbackResult.knn}
+              <div class="feedback-result">
+                <span>Updated KNN predicts:</span>
+                <strong>{formatLabel(feedbackResult.knn.label)}</strong>
+                <small>{Math.round(feedbackResult.knn.confidence * 100)}% confidence</small>
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         <div class="leaf-profile">
           <article>
@@ -854,6 +958,113 @@
     margin: 12px 0 0;
     color: #1e5b33;
     font-weight: 900;
+  }
+  .feedback-card {
+    margin-top: 16px;
+    padding: 16px;
+    border: 2px solid #102415;
+    background: #e6f5cf;
+  }
+  .feedback-card > b {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 15px;
+  }
+  .feedback-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .feedback-btn {
+    min-height: 42px;
+    font-family: 'IBM Plex Sans', 'Helvetica Neue', sans-serif;
+    font-size: 14px;
+    font-weight: 900;
+    border: 2px solid #102415;
+    cursor: pointer;
+  }
+  .feedback-btn.correct {
+    background: #2f7d4b;
+    color: #f4ffe1;
+  }
+  .feedback-btn.wrong {
+    background: #9d2d20;
+    color: #f4ffe1;
+  }
+  .correction-panel {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid #102415;
+  }
+  .correction-panel label {
+    font-size: 13px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+  }
+  .correction-panel select {
+    min-height: 42px;
+    padding: 0 10px;
+    border: 2px solid #102415;
+    background: #f4ffe1;
+    font-family: 'IBM Plex Sans', 'Helvetica Neue', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    text-transform: capitalize;
+    cursor: pointer;
+  }
+  .confirm-btn {
+    margin-top: 4px;
+  }
+  .feedback-error {
+    margin: 0;
+    color: #9d2d20;
+    font-weight: 900;
+    font-size: 13px;
+  }
+  .feedback-updated {
+    margin-top: 16px;
+    padding: 16px;
+    border: 2px solid #102415;
+    background: #bfe39d;
+  }
+  .feedback-badge {
+    margin: 0 0 8px;
+    font-weight: 900;
+    font-size: 15px;
+    color: #102415;
+  }
+  .feedback-summary {
+    margin: 0 0 10px;
+    color: #1e5b33;
+    font-size: 13px;
+  }
+  .feedback-result {
+    padding: 10px;
+    border: 2px solid #102415;
+    background: #f4ffe1;
+  }
+  .feedback-result span {
+    display: block;
+    font-family: 'IBM Plex Sans', 'Helvetica Neue', sans-serif;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: #1e5b33;
+  }
+  .feedback-result strong {
+    display: block;
+    margin-top: 4px;
+    font-size: 24px;
+    text-transform: capitalize;
+  }
+  .feedback-result small {
+    font-family: 'IBM Plex Sans', 'Helvetica Neue', sans-serif;
+    font-size: 12px;
+    color: #405c3a;
   }
   .charts {
     display: grid;

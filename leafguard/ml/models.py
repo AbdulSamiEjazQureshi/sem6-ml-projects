@@ -97,6 +97,16 @@ class KNearestNeighbors:
     def predict(self, samples):
         return [self.predict_one(sample)["label"] for sample in samples]
 
+    def add_training_sample(self, sample, label):
+        """Append one labeled sample for online/active learning."""
+        self.samples.append(sample)
+        self.labels.append(label)
+        return self
+
+    def get_all_training_data(self):
+        """Return (samples, labels) for refitting other models."""
+        return self.samples, self.labels
+
     def to_dict(self):
         return {"kind": "knn", "k": self.k, "samples": self.samples, "labels": self.labels}
 
